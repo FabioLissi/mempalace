@@ -5,9 +5,12 @@ Priority: env vars > config file (~/.mempalace/config.json) > defaults
 """
 
 import json
+import logging
 import os
 import re
 from pathlib import Path
+
+logger = logging.getLogger("mempalace")
 
 
 # ── Input validation ──────────────────────────────────────────────────────────
@@ -197,6 +200,14 @@ class MempalaceConfig:
                 pass
         return self._config_file
 
+    @property
+    def embedding_model(self):
+        """Configured embedding model name, or None for ChromaDB default."""
+        env_val = os.environ.get("MEMPALACE_EMBEDDING_MODEL")
+        if env_val:
+            return env_val
+        return self._file_config.get("embedding_model", None)
+
     def save_people_map(self, people_map):
         """Write people_map.json to config directory.
 
@@ -207,3 +218,46 @@ class MempalaceConfig:
         with open(self._people_map_file, "w") as f:
             json.dump(people_map, f, indent=2)
         return self._people_map_file
+
+
+# ── Embedding function singleton ─────────────────────────────────────────────
+
+_embedding_function = None
+_embedding_function_resolved = False
+
+
+def get_embedding_function(config=None):
+    """Return the configured ChromaDB embedding function, or None for default.
+
+    Checks MEMPALACE_EMBEDDING_MODEL env var first, then config.json
+    ``embedding_model`` key.  When a model name is found, attempts to import
+    ``SentenceTransformerEmbeddingFunction`` from chromadb.  If
+    sentence-transformers is not installed the import will fail and we fall
+    back to None (ChromaDB's built-in default), logging a warning.
+
+    The result is cached so the function is only resolved once per process.
+    """
+    global _embedding_function, _embedding_function_resolved
+    if _embedding_function_resolved:
+        return _embedding_function
+
+    _embedding_function_resolved = True
+
+    cfg = config or MempalaceConfig()
+    model_name = cfg.embedding_model
+    if not model_name:
+        return None
+
+    try:
+        from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+
+        _embedding_function = SentenceTransformerEmbeddingFunction(model_name=model_name)
+        logger.info("Using embedding model: %s", model_name)
+    except Exception:
+        logger.warning(
+            "sentence-transformers not installed — falling back to ChromaDB default. "
+            "Install with: pip install mempalace[multilingual]"
+        )
+        _embedding_function = None
+
+    return _embedding_function

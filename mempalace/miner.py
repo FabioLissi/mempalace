@@ -17,6 +17,7 @@ from collections import defaultdict
 
 import chromadb
 
+from .config import get_embedding_function
 from .palace import SKIP_DIRS, get_collection, file_already_mined
 
 READABLE_EXTENSIONS = {
@@ -51,8 +52,8 @@ SKIP_FILENAMES = {
     "package-lock.json",
 }
 
-CHUNK_SIZE = 800  # chars per drawer
-CHUNK_OVERLAP = 100  # overlap between chunks
+CHUNK_SIZE = 450  # chars per drawer
+CHUNK_OVERLAP = 50  # overlap between chunks
 MIN_CHUNK_SIZE = 50  # skip tiny chunks
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB — skip files larger than this
 
@@ -615,8 +616,9 @@ def mine(
 def status(palace_path: str):
     """Show what's been filed in the palace."""
     try:
+        ef = get_embedding_function()
         client = chromadb.PersistentClient(path=palace_path)
-        col = client.get_collection("mempalace_drawers")
+        col = client.get_collection("mempalace_drawers", embedding_function=ef)
     except Exception:
         print(f"\n  No palace found at {palace_path}")
         print("  Run: mempalace init <dir> then mempalace mine <dir>")

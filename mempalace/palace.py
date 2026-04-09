@@ -7,6 +7,8 @@ Consolidates ChromaDB access patterns used by both miners and the MCP server.
 import os
 import chromadb
 
+from .config import get_embedding_function
+
 SKIP_DIRS = {
     ".git",
     "node_modules",
@@ -41,11 +43,12 @@ def get_collection(palace_path: str, collection_name: str = "mempalace_drawers")
         os.chmod(palace_path, 0o700)
     except (OSError, NotImplementedError):
         pass
+    ef = get_embedding_function()
     client = chromadb.PersistentClient(path=palace_path)
     try:
-        return client.get_collection(collection_name)
+        return client.get_collection(collection_name, embedding_function=ef)
     except Exception:
-        return client.create_collection(collection_name)
+        return client.create_collection(collection_name, embedding_function=ef)
 
 
 def file_already_mined(collection, source_file: str, check_mtime: bool = False) -> bool:

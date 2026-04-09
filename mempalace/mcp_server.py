@@ -26,7 +26,7 @@ import hashlib
 from datetime import datetime
 from pathlib import Path
 
-from .config import MempalaceConfig, sanitize_name, sanitize_content
+from .config import MempalaceConfig, sanitize_name, sanitize_content, get_embedding_function
 from .version import __version__
 from .searcher import search_memories
 from .palace_graph import traverse, find_tunnels, graph_stats
@@ -116,11 +116,16 @@ def _get_collection(create=False):
     """Return the ChromaDB collection, caching the client between calls."""
     global _collection_cache
     try:
+        ef = get_embedding_function()
         client = _get_client()
         if create:
-            _collection_cache = client.get_or_create_collection(_config.collection_name)
+            _collection_cache = client.get_or_create_collection(
+                _config.collection_name, embedding_function=ef
+            )
         elif _collection_cache is None:
-            _collection_cache = client.get_collection(_config.collection_name)
+            _collection_cache = client.get_collection(
+                _config.collection_name, embedding_function=ef
+            )
         return _collection_cache
     except Exception:
         return None
