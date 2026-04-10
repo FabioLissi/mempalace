@@ -53,8 +53,8 @@ SKIP_FILENAMES = {
     "package-lock.json",
 }
 
-CHUNK_SIZE = 450  # chars per drawer
-CHUNK_OVERLAP = 50  # overlap between chunks
+CHUNK_SIZE = int(os.environ.get("MEMPALACE_CHUNK_SIZE", 450))  # chars per drawer
+CHUNK_OVERLAP = int(os.environ.get("MEMPALACE_CHUNK_OVERLAP", 50))  # overlap between chunks
 MIN_CHUNK_SIZE = 50  # skip tiny chunks
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB — skip files larger than this
 BATCH_SIZE = 128  # chunks per upsert call
