@@ -31,7 +31,27 @@ CONVO_EXTENSIONS = {
 MIN_CHUNK_SIZE = 30
 BATCH_SIZE = 128  # chunks per upsert call (matches miner.py)
 MAX_WORKERS = min(32, (os.cpu_count() or 4) * 2)  # parallel file readers
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB — skip files larger than this
+
+# Maximum size of a single conversation file to mine. Defaults to 256 MB,
+# which comfortably covers even very long Claude Code sessions (largest
+# observed ~180 MB). Override via MEMPALACE_MAX_CONVO_FILE_SIZE_MB env var
+# (integer megabytes). Files larger than this are skipped with a warning.
+#
+# Why a limit at all: normalize() reads the whole file into memory, so a
+# pathological multi-GB file could OOM small machines. 256 MB is a safe
+# upper bound for laptops/workstations while still capturing every realistic
+# conversation session.
+def _get_max_file_size() -> int:
+    """Return max file size in bytes, read fresh from env on each call."""
+    override_mb = os.environ.get("MEMPALACE_MAX_CONVO_FILE_SIZE_MB")
+    if override_mb:
+        try:
+            mb = int(override_mb)
+            if mb > 0:
+                return mb * 1024 * 1024
+        except ValueError:
+            pass
+    return 256 * 1024 * 1024  # default: 256 MB
 
 
 # =============================================================================
@@ -219,9 +239,18 @@ def scan_convos(convo_dir: str) -> list:
                 if filepath.is_symlink():
                     continue
                 try:
-                    if filepath.stat().st_size > MAX_FILE_SIZE:
-                        continue
+                    size = filepath.stat().st_size
                 except OSError:
+                    continue
+                if size > _get_max_file_size():
+                    size_mb = size / (1024 * 1024)
+                    limit_mb = _get_max_file_size() / (1024 * 1024)
+                    print(
+                        f"  [skip] {filepath.name}: {size_mb:.1f} MB "
+                        f"exceeds limit {limit_mb:.0f} MB "
+                        f"(set MEMPALACE_MAX_CONVO_FILE_SIZE_MB to override)",
+                        file=sys.stderr,
+                    )
                     continue
                 files.append(filepath)
     return files
