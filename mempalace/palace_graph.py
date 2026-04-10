@@ -16,17 +16,14 @@ No external graph DB needed — built from ChromaDB metadata.
 """
 
 from collections import defaultdict, Counter
-from .config import MempalaceConfig, get_embedding_function
-
-import chromadb
+from .config import MempalaceConfig
+from .palace import get_collection as _palace_get_collection
 
 
 def _get_collection(config=None):
     config = config or MempalaceConfig()
     try:
-        ef = get_embedding_function()
-        client = chromadb.PersistentClient(path=config.palace_path)
-        return client.get_collection(config.collection_name, embedding_function=ef)
+        return _palace_get_collection(config.palace_path, config.collection_name)
     except Exception:
         return None
 

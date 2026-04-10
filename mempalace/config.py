@@ -222,6 +222,20 @@ class MempalaceConfig:
             return env_val
         return self._file_config.get("embedding_device", None)
 
+    @property
+    def force_embedding(self):
+        """Whether to bypass embedding model mismatch checks.
+
+        Priority: ``MEMPALACE_FORCE_EMBEDDING`` env var > ``config.json``
+        ``"force_embedding"`` key > ``False`` default.
+
+        Env var: ``"true"`` (case-insensitive) to enable, anything else is false.
+        """
+        env_val = os.environ.get("MEMPALACE_FORCE_EMBEDDING")
+        if env_val is not None:
+            return env_val.lower() == "true"
+        return bool(self._file_config.get("force_embedding", False))
+
     def save_people_map(self, people_map):
         """Write people_map.json to config directory.
 
@@ -243,6 +257,57 @@ _embedding_function_resolved = False
 # is configured.  This is the same underlying model ChromaDB uses by default
 # (via its ONNX runtime), so vectors remain compatible with existing palaces.
 _DEFAULT_MODEL_FOR_DEVICE = "sentence-transformers/all-MiniLM-L6-v2"
+
+
+class EmbeddingModelMismatchError(Exception):
+    """Raised when palace was created with a different embedding model."""
+
+    def __init__(self, stored_model: str, current_model: str):
+        self.stored_model = stored_model
+        self.current_model = current_model
+        super().__init__(
+            f"Embedding model mismatch.\n"
+            f"Palace was created with: {stored_model}\n"
+            f"Currently configured:    {current_model}\n\n"
+            f"To switch models, re-mine your palace:\n"
+            f"  mempalace re-mine\n\n"
+            f"Or set MEMPALACE_FORCE_EMBEDDING=true to bypass this check."
+        )
+
+
+def _resolve_model_and_device(config=None):
+    """Resolve the effective model name and device from config.
+
+    Returns (model_name, device) where model_name is None when no
+    explicit model is configured (i.e. ChromaDB default should be used).
+    """
+    cfg = config or MempalaceConfig()
+    model_name = cfg.embedding_model
+    device = cfg.embedding_device
+
+    # Ergonomic default: if the user asked for a device but didn't pick a
+    # model, use the same model ChromaDB uses by default so vectors stay
+    # compatible with existing palaces.
+    if not model_name and device:
+        model_name = _DEFAULT_MODEL_FOR_DEVICE
+
+    return model_name, device
+
+
+def get_embedding_model_name(config=None):
+    """Return the canonical identity string for the active embedding model.
+
+    Does **not** instantiate the model or touch the singleton cache.
+
+    Returns:
+        ``"chromadb-default"`` when no model/device is configured,
+        ``_DEFAULT_MODEL_FOR_DEVICE`` when only a device is set,
+        or the explicit model name string.
+    """
+    model_name, _ = _resolve_model_and_device(config)
+    if not model_name:
+        return "chromadb-default"
+    return model_name
 
 
 def get_embedding_function(config=None):
@@ -275,15 +340,7 @@ def get_embedding_function(config=None):
 
     _embedding_function_resolved = True
 
-    cfg = config or MempalaceConfig()
-    model_name = cfg.embedding_model
-    device = cfg.embedding_device
-
-    # Ergonomic default: if the user asked for a device but didn't pick a
-    # model, use the same model ChromaDB uses by default so vectors stay
-    # compatible with existing palaces.
-    if not model_name and device:
-        model_name = _DEFAULT_MODEL_FOR_DEVICE
+    model_name, device = _resolve_model_and_device(config)
 
     if not model_name:
         # No explicit configuration — use ChromaDB's default embedder.
