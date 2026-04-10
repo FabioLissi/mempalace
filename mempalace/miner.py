@@ -579,8 +579,14 @@ def mine(
     dry_run: bool = False,
     respect_gitignore: bool = True,
     include_ignored: list = None,
+    source_files: list = None,
 ):
-    """Mine a project directory into the palace."""
+    """Mine a project directory into the palace.
+
+    If *source_files* is provided, only those files are mined (skipping
+    the directory scan).  This is used by ``mempalace re-mine`` to
+    re-embed exactly the files that were in the palace before.
+    """
 
     project_path = Path(project_dir).expanduser().resolve()
     config = load_config(project_dir)
@@ -588,11 +594,14 @@ def mine(
     wing = wing_override or config["wing"]
     rooms = config.get("rooms", [{"name": "general", "description": "All project files"}])
 
-    files = scan_project(
-        project_dir,
-        respect_gitignore=respect_gitignore,
-        include_ignored=include_ignored,
-    )
+    if source_files is not None:
+        files = [Path(f) for f in source_files if os.path.isfile(f)]
+    else:
+        files = scan_project(
+            project_dir,
+            respect_gitignore=respect_gitignore,
+            include_ignored=include_ignored,
+        )
     if limit > 0:
         files = files[:limit]
 

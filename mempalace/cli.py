@@ -158,6 +158,119 @@ def cmd_status(args):
     status(palace_path=palace_path)
 
 
+def _extract_source_files(palace_path: str) -> set:
+    """Extract all unique source_file paths from palace metadata."""
+    from .palace import get_collection, iter_all_metadatas
+
+    try:
+        col = get_collection(palace_path, force=True)
+    except Exception:
+        return set()
+
+    sources = set()
+    for meta in iter_all_metadatas(col):
+        sf = meta.get("source_file")
+        if sf:
+            sources.add(sf)
+    return sources
+
+
+def cmd_remine(args):
+    """Re-mine palace with the currently configured embedding model."""
+    from .config import get_embedding_model_name
+
+    palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
+
+    if not os.path.isdir(palace_path):
+        print(f"\n  No palace found at {palace_path}")
+        return
+
+    print(f"\n{'=' * 55}")
+    print("  MemPalace Re-mine")
+    print(f"{'=' * 55}\n")
+    print(f"  Palace: {palace_path}")
+    print(f"  Target model: {get_embedding_model_name()}")
+
+    # Step 1: Extract source files
+    print("\n  Extracting source file paths from existing drawers...")
+    sources = _extract_source_files(palace_path)
+
+    if not sources:
+        print("  No drawers found. Nothing to re-mine.")
+        return
+
+    # Step 2: Partition into existing vs missing
+    existing = {s for s in sources if os.path.isfile(s)}
+    missing = sources - existing
+
+    print(f"  Found {len(sources)} unique source files.")
+    print(f"    Still exist: {len(existing)}")
+    print(f"    Missing:     {len(missing)}")
+
+    if missing:
+        print("\n  Missing files (will be skipped):")
+        for f in sorted(missing)[:20]:
+            print(f"    - {f}")
+        if len(missing) > 20:
+            print(f"    ... and {len(missing) - 20} more")
+
+    if not existing:
+        print("\n  No source files found on disk. Nothing to re-mine.")
+        return
+
+    if args.dry_run:
+        print(f"\n  (dry run — would re-mine {len(existing)} files)")
+        return
+
+    # Step 3: Backup palace before destructive operation
+    import shutil
+    import chromadb
+
+    backup_path = palace_path.rstrip(os.sep) + ".pre-remine-backup"
+    if os.path.exists(backup_path):
+        shutil.rmtree(backup_path)
+    print(f"\n  Backing up to {backup_path}...")
+    shutil.copytree(palace_path, backup_path)
+
+    # Step 4: Drop and re-create
+    print("  Dropping existing collection...")
+    client = chromadb.PersistentClient(path=palace_path)
+    client.delete_collection("mempalace_drawers")
+
+    # Step 5: Re-mine with exact file list (not directory scan)
+    # NOTE: Files originally mined with --mode convos will be re-mined
+    # as project files (fixed-size chunks instead of exchange-pair chunks).
+    # The vectors will be correct for the new model, but chunk boundaries
+    # will differ. A future improvement could store the original mining
+    # mode in drawer metadata to preserve it across re-mines.
+    print("  Re-mining...")
+
+    from .miner import mine
+
+    # Group files by parent dir (mine() needs a project_dir for config)
+    from collections import defaultdict
+
+    dir_files = defaultdict(list)
+    for f in sorted(existing):
+        dir_files[os.path.dirname(f)].append(f)
+
+    for source_dir, file_list in sorted(dir_files.items()):
+        if os.path.isdir(source_dir):
+            print(f"\n  Mining: {source_dir} ({len(file_list)} files)")
+            mine(
+                project_dir=source_dir,
+                palace_path=palace_path,
+                source_files=file_list,
+            )
+
+    print(f"\n{'=' * 55}")
+    print(f"  Re-mine complete. Model: {get_embedding_model_name()}")
+    if missing:
+        print(f"  Skipped {len(missing)} missing source files.")
+    print(f"  Backup saved at {backup_path}")
+    print(f"{'=' * 55}\n")
+
+
 def cmd_repair(args):
     """Rebuild palace vector index from SQLite metadata."""
     import chromadb
@@ -532,6 +645,15 @@ def main():
     # status
     sub.add_parser("status", help="Show what's been filed")
 
+    # re-mine
+    p_remine = sub.add_parser(
+        "re-mine",
+        help="Re-mine palace with the currently configured embedding model",
+    )
+    p_remine.add_argument(
+        "--dry-run", action="store_true", help="Show what would be re-mined without doing it"
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -565,6 +687,7 @@ def main():
         "wake-up": cmd_wakeup,
         "repair": cmd_repair,
         "status": cmd_status,
+        "re-mine": cmd_remine,
     }
     dispatch[args.command](args)
 
