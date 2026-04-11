@@ -479,6 +479,16 @@ def process_file(
         print(f"    [DRY RUN] {filepath.name} → room:{room} ({len(records)} drawers)")
         return len(records), room
 
+    # Purge stale drawers for this file before re-inserting the fresh chunks.
+    # Converts modified-file re-mines from upsert-over-existing-IDs (which hits
+    # hnswlib's thread-unsafe updatePoint path and can segfault on macOS ARM
+    # with chromadb 0.6.3) into a clean delete+insert, bypassing the update
+    # path entirely.
+    try:
+        collection.delete(where={"source_file": source_file})
+    except Exception:
+        pass
+
     drawers_added = 0
     for drawer_id, chunk_content, meta in records:
         added = add_drawer(
