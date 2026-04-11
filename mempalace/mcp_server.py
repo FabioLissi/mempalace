@@ -26,7 +26,12 @@ import hashlib
 from datetime import datetime
 from pathlib import Path
 
-from .config import MempalaceConfig, sanitize_name, sanitize_content
+from .config import (
+    EmbeddingModelMismatchError,
+    MempalaceConfig,
+    sanitize_name,
+    sanitize_content,
+)
 from .version import __version__
 from .palace import get_collection as _palace_get_collection
 from .query_sanitizer import sanitize_query
@@ -113,6 +118,8 @@ def _get_collection(create=False):
                 _config.palace_path, _config.collection_name
             )
         return _collection_cache
+    except EmbeddingModelMismatchError:
+        raise
     except Exception:
         return None
 
@@ -980,6 +987,17 @@ def handle_request(request):
                 "jsonrpc": "2.0",
                 "id": req_id,
                 "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]},
+            }
+        except EmbeddingModelMismatchError as e:
+            logger.error(f"Embedding model mismatch in {tool_name}: {e}")
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "content": [
+                        {"type": "text", "text": json.dumps({"error": str(e)}, indent=2)}
+                    ]
+                },
             }
         except Exception:
             logger.exception(f"Tool error in {tool_name}")

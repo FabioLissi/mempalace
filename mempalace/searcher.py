@@ -9,6 +9,7 @@ Returns verbatim text — the actual words, never summaries.
 import logging
 from pathlib import Path
 
+from .config import EmbeddingModelMismatchError
 from .palace import get_collection as _palace_get_collection
 
 logger = logging.getLogger("mempalace_mcp")
@@ -25,6 +26,8 @@ def search(query: str, palace_path: str, wing: str = None, room: str = None, n_r
     """
     try:
         col = _palace_get_collection(palace_path)
+    except EmbeddingModelMismatchError:
+        raise
     except Exception:
         print(f"\n  No palace found at {palace_path}")
         print("  Run: mempalace init <dir> then mempalace mine <dir>")
@@ -98,6 +101,8 @@ def search_memories(
     """
     try:
         col = _palace_get_collection(palace_path)
+    except EmbeddingModelMismatchError:
+        raise
     except Exception as e:
         logger.error("No palace found at %s: %s", palace_path, e)
         return {
